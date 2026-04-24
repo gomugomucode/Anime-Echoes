@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/firebase";
+import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, MessageSquareQuote, User as UserIcon } from "lucide-react";
 
 interface Category {
   id: string;
@@ -17,9 +18,7 @@ interface Quote {
   id: string;
   character_name: string;
   quote_text: string;
-  anime_categories: {
-    name: string;
-  } | null;
+  anime_name: string;
 }
 
 export const QuotesManager = () => {
@@ -37,24 +36,31 @@ export const QuotesManager = () => {
   }, []);
 
   const fetchCategories = async () => {
-    const { data } = await supabase
-      .from("anime_categories")
-      .select("id, name")
-      .order("name");
-    setCategories(data || []);
+    try {
+      const q = query(collection(db, "anime_categories"), orderBy("name"));
+      const querySnapshot = await getDocs(q);
+      const data = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        name: doc.data().name
+      })) as Category[];
+      setCategories(data);
+    } catch (error: any) {
+      console.error("Error fetching categories:", error);
+    }
   };
 
   const fetchQuotes = async () => {
-    const { data } = await supabase
-      .from("quotes")
-      .select(`
-        id,
-        character_name,
-        quote_text,
-        anime_categories (name)
-      `)
-      .order("created_at", { ascending: false });
-    setQuotes(data || []);
+    try {
+      const q = query(collection(db, "quotes"), orderBy("created_at", "desc"));
+      const querySnapshot = await getDocs(q);
+      const data = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as any[];
+      setQuotes(data);
+    } catch (error: any) {
+      console.error("Error fetching quotes:", error);
+    }
   };
 
   const handleAdd = async (e: React.FormEvent) => {
@@ -62,19 +68,19 @@ export const QuotesManager = () => {
     setLoading(true);
 
     try {
-      const { error } = await supabase
-        .from("quotes")
-        .insert({
-          anime_id: selectedCategory || null,
-          character_name: characterName,
-          quote_text: quoteText,
-        });
+      const category = categories.find(c => c.id === selectedCategory);
 
-      if (error) throw error;
+      await addDoc(collection(db, "quotes"), {
+        anime_id: selectedCategory || null,
+        anime_name: category?.name || "Independent",
+        character_name: characterName,
+        quote_text: quoteText,
+        created_at: new Date().toISOString(),
+      });
 
       toast({
-        title: "Success",
-        description: "Quote added successfully",
+        title: "Quote Recorded",
+        description: "The echoes of this wisdom will remain.",
       });
 
       setCharacterName("");
@@ -93,19 +99,14 @@ export const QuotesManager = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this quote?")) return;
+    if (!confirm("Silence this quote forever?")) return;
 
     try {
-      const { error } = await supabase
-        .from("quotes")
-        .delete()
-        .eq("id", id);
-
-      if (error) throw error;
+      await deleteDoc(doc(db, "quotes", id));
 
       toast({
-        title: "Success",
-        description: "Quote deleted successfully",
+        title: "Silenced",
+        description: "Quote has been removed.",
       });
 
       fetchQuotes();
@@ -119,19 +120,25 @@ export const QuotesManager = () => {
   };
 
   return (
-    <div className="space-y-6">
-      <Card className="p-6 bg-card border-border">
-        <h3 className="text-xl font-bold mb-4 text-foreground">Add New Quote</h3>
-        <form onSubmit={handleAdd} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">
-              Anime (optional)
-            </label>
+    <div className="space-y-12">
+      <Card className="p-8 glass-card border-white/10 rounded-3xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 p-8 opacity-5">
+          <MessageSquareQuote className="w-24 h-24" />
+        </div>
+
+        <h3 className="text-2xl font-black mb-6 flex items-center gap-2">
+          <Plus className="w-6 h-6 text-primary" />
+          Add New Wisdom
+        </h3>
+
+        <form onSubmit={handleAdd} className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-2">
+            <label className="text-sm font-bold text-foreground/70 ml-1">Series (Optional)</label>
             <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-              <SelectTrigger className="bg-background border-border">
-                <SelectValue placeholder="Choose anime (optional)" />
+              <SelectTrigger className="bg-white/5 border-white/10 h-12 rounded-xl focus:ring-primary">
+                <SelectValue placeholder="Associate with series..." />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="glass border-white/10 rounded-xl">
                 {categories.map((cat) => (
                   <SelectItem key={cat.id} value={cat.id}>
                     {cat.name}
@@ -141,64 +148,83 @@ export const QuotesManager = () => {
             </Select>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">
-              Character Name
-            </label>
-            <Input
-              value={characterName}
-              onChange={(e) => setCharacterName(e.target.value)}
-              placeholder="e.g., Naruto Uzumaki"
-              required
-              className="bg-background border-border"
-            />
+          <div className="space-y-2">
+            <label className="text-sm font-bold text-foreground/70 ml-1">Character Name</label>
+            <div className="relative">
+              <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                value={characterName}
+                onChange={(e) => setCharacterName(e.target.value)}
+                placeholder="e.g., Kakashi Hatake"
+                required
+                className="bg-white/5 border-white/10 h-12 pl-12 rounded-xl focus:ring-primary"
+              />
+            </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">
-              Quote
-            </label>
+          <div className="md:col-span-2 space-y-2">
+            <label className="text-sm font-bold text-foreground/70 ml-1">The Quote</label>
             <Textarea
               value={quoteText}
               onChange={(e) => setQuoteText(e.target.value)}
-              placeholder="Enter the quote..."
+              placeholder="In the ninja world, those who break the rules are scum..."
               required
-              rows={4}
-              className="bg-background border-border"
+              className="bg-white/5 border-white/10 min-h-[120px] rounded-xl focus:ring-primary p-4 resize-none"
             />
           </div>
 
-          <Button
-            type="submit"
-            disabled={loading}
-            className="bg-primary hover:bg-primary/90"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Add Quote
-          </Button>
+          <div className="md:col-span-2">
+            <Button
+              type="submit"
+              disabled={loading}
+              className="w-full md:w-auto px-10 h-12 bg-primary text-primary-foreground rounded-xl font-bold hover:shadow-[0_0_20px_rgba(147,51,234,0.3)] transition-all"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              {loading ? "Recording..." : "Archive Quote"}
+            </Button>
+          </div>
         </form>
       </Card>
 
-      <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-6">
         {quotes.map((quote) => (
-          <Card key={quote.id} className="p-4 bg-card border-border">
-            <p className="text-foreground italic mb-2">"{quote.quote_text}"</p>
-            <p className="text-sm text-muted-foreground">
-              — {quote.character_name}
-              {quote.anime_categories && ` (${quote.anime_categories.name})`}
-            </p>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => handleDelete(quote.id)}
-              className="mt-3"
-            >
-              <Trash2 className="w-4 h-4 mr-2" />
-              Delete
-            </Button>
+          <Card key={quote.id} className="group p-8 glass-card border-white/5 rounded-[2rem] transition-all hover:border-primary/30 relative">
+            <div className="absolute top-6 left-6 text-primary/10 -z-0">
+              <MessageSquareQuote className="w-16 h-16" />
+            </div>
+            
+            <div className="relative z-10">
+              <p className="text-xl md:text-2xl font-medium leading-relaxed italic mb-6 text-foreground/90">
+                "{quote.quote_text}"
+              </p>
+              
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20">
+                    <UserIcon className="w-5 h-5 text-primary" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-foreground">{quote.character_name}</h4>
+                    {quote.anime_name && (
+                      <p className="text-xs text-primary font-bold uppercase tracking-wider">
+                        {quote.anime_name}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => handleDelete(quote.id)}
+                  className="p-3 bg-destructive/5 text-destructive rounded-xl opacity-0 group-hover:opacity-100 transition-all hover:bg-destructive hover:text-white"
+                >
+                  <Trash2 className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
           </Card>
         ))}
       </div>
     </div>
   );
 };
+

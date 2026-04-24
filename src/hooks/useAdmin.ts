@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { User } from "@supabase/supabase-js";
+import { auth, db } from "@/lib/firebase";
+import { onAuthStateChanged, User } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
 
 export const useAdmin = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -8,45 +9,29 @@ export const useAdmin = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    checkAdminStatus();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          checkAdminRole(session.user.id);
-        } else {
-          setIsAdmin(false);
-          setLoading(false);
-        }
+    const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
+      setUser(firebaseUser);
+      if (firebaseUser) {
+        await checkAdminRole(firebaseUser.uid);
+      } else {
+        setIsAdmin(false);
+        setLoading(false);
       }
-    );
+    });
 
-    return () => subscription.unsubscribe();
+    return () => unsubscribe();
   }, []);
-
-  const checkAdminStatus = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    setUser(session?.user ?? null);
-    
-    if (session?.user) {
-      await checkAdminRole(session.user.id);
-    } else {
-      setLoading(false);
-    }
-  };
 
   const checkAdminRole = async (userId: string) => {
     try {
-      const { data, error } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", userId)
-        .eq("role", "admin")
-        .maybeSingle();
+      const docRef = doc(db, "user_roles", userId);
+      const docSnap = await getDoc(docRef);
 
-      if (error) throw error;
-      setIsAdmin(!!data);
+      if (docSnap.exists() && docSnap.data().role === "admin") {
+        setIsAdmin(true);
+      } else {
+        setIsAdmin(false);
+      }
     } catch (error) {
       console.error("Error checking admin status:", error);
       setIsAdmin(false);

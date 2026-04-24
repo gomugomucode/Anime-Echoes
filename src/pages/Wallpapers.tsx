@@ -1,20 +1,18 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/firebase";
+import { collection, getDocs, query, orderBy } from "firebase/firestore";
 import Navigation from "@/components/Navigation";
 import WallpaperCard from "@/components/WallpaperCard";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search } from "lucide-react";
+import { Search, Image as ImageIcon, Sparkles } from "lucide-react";
 
 interface Wallpaper {
   id: string;
   image_url: string;
   title: string | null;
   anime_id: string;
-  anime_categories: {
-    id: string;
-    name: string;
-  };
+  anime_name: string;
 }
 
 interface Category {
@@ -41,13 +39,13 @@ const Wallpapers = () => {
 
   const fetchCategories = async () => {
     try {
-      const { data, error } = await supabase
-        .from("anime_categories")
-        .select("id, name")
-        .order("name");
-
-      if (error) throw error;
-      setCategories(data || []);
+      const q = query(collection(db, "anime_categories"), orderBy("name"));
+      const querySnapshot = await getDocs(q);
+      const data = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        name: doc.data().name
+      })) as Category[];
+      setCategories(data);
     } catch (error) {
       console.error("Error fetching categories:", error);
     }
@@ -55,23 +53,14 @@ const Wallpapers = () => {
 
   const fetchWallpapers = async () => {
     try {
-      const { data, error } = await supabase
-        .from("wallpapers")
-        .select(`
-          id,
-          image_url,
-          title,
-          anime_id,
-          anime_categories (
-            id,
-            name
-          )
-        `)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      setWallpapers(data || []);
-      setFilteredWallpapers(data || []);
+      const q = query(collection(db, "wallpapers"), orderBy("created_at", "desc"));
+      const querySnapshot = await getDocs(q);
+      const data = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as any[];
+      setWallpapers(data);
+      setFilteredWallpapers(data);
     } catch (error) {
       console.error("Error fetching wallpapers:", error);
     } finally {
@@ -82,15 +71,13 @@ const Wallpapers = () => {
   const filterWallpapers = () => {
     let filtered = wallpapers;
 
-    // Filter by category
     if (selectedCategory !== "all") {
-      filtered = filtered.filter(w => w.anime_categories.id === selectedCategory);
+      filtered = filtered.filter(w => w.anime_id === selectedCategory);
     }
 
-    // Filter by search term
     if (searchTerm) {
       filtered = filtered.filter(w =>
-        w.anime_categories.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        w.anime_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (w.title && w.title.toLowerCase().includes(searchTerm.toLowerCase()))
       );
     }
@@ -102,34 +89,38 @@ const Wallpapers = () => {
     <div className="min-h-screen bg-background">
       <Navigation />
       
-      <main className="container mx-auto px-4 pt-24 pb-12">
-        <div className="text-center mb-8">
-          <h1 className="text-5xl font-bold mb-4 bg-gradient-to-r from-primary via-secondary to-primary bg-clip-text text-transparent animate-gradient">
-            All Wallpapers
+      <main className="container mx-auto px-6 pt-32 pb-20">
+        <div className="max-w-4xl mx-auto text-center mb-16">
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 border border-primary/20 mb-6">
+            <ImageIcon className="w-4 h-4 text-primary" />
+            <span className="text-sm font-bold text-primary uppercase tracking-widest">Gallery</span>
+          </div>
+          <h1 className="text-5xl md:text-7xl font-black mb-6 tracking-tight">
+            Visual <span className="text-gradient">Masterpieces</span>
           </h1>
-          <p className="text-muted-foreground text-lg">
-            Browse and download your favorite anime wallpapers
+          <p className="text-muted-foreground text-lg md:text-xl leading-relaxed">
+            Immerse yourself in high-definition anime aesthetics. Curated, refined, and echoed for the true enthusiasts.
           </p>
         </div>
 
         {/* Search and Filter */}
-        <div className="mb-8 flex flex-col md:flex-row gap-4 max-w-4xl mx-auto">
+        <div className="mb-12 glass p-6 rounded-[2rem] border-white/5 flex flex-col md:flex-row gap-6 max-w-5xl mx-auto">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
             <Input
-              placeholder="Search by anime name or title..."
+              placeholder="Search by series or title..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 bg-card border-border text-foreground"
+              className="h-14 pl-12 bg-white/5 border-white/10 rounded-2xl focus:ring-primary text-foreground placeholder:text-muted-foreground/50"
             />
           </div>
           
           <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-            <SelectTrigger className="w-full md:w-64 bg-card border-border">
-              <SelectValue placeholder="Filter by anime" />
+            <SelectTrigger className="h-14 w-full md:w-72 bg-white/5 border-white/10 rounded-2xl focus:ring-primary">
+              <SelectValue placeholder="Filter by Series" />
             </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Anime</SelectItem>
+            <SelectContent className="glass border-white/10 rounded-2xl">
+              <SelectItem value="all">All Masterpieces</SelectItem>
               {categories.map((cat) => (
                 <SelectItem key={cat.id} value={cat.id}>
                   {cat.name}
@@ -140,31 +131,36 @@ const Wallpapers = () => {
         </div>
 
         {loading ? (
-          <div className="text-center text-muted-foreground">Loading wallpapers...</div>
+          <div className="flex flex-col items-center justify-center py-20 gap-4">
+            <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+            <p className="text-muted-foreground animate-pulse font-medium">Curating gallery...</p>
+          </div>
         ) : filteredWallpapers.length === 0 ? (
-          <div className="text-center text-muted-foreground">
-            {wallpapers.length === 0 
-              ? "No wallpapers available yet. Check back soon!"
-              : "No wallpapers found matching your search."}
+          <div className="text-center py-32 glass rounded-[3rem] border-white/5">
+            <Sparkles className="w-12 h-12 text-muted-foreground/20 mx-auto mb-4" />
+            <h3 className="text-2xl font-bold text-foreground/50">
+              {wallpapers.length === 0 
+                ? "The gallery is currently empty."
+                : "No echoes found for this search."}
+            </h3>
+            <p className="text-muted-foreground mt-2">Try adjusting your filters or check back later.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {filteredWallpapers.map((wallpaper) => (
               <WallpaperCard
                 key={wallpaper.id}
                 id={wallpaper.id}
                 imageUrl={wallpaper.image_url}
-                animeName={wallpaper.anime_categories.name}
+                animeName={wallpaper.anime_name}
               />
             ))}
           </div>
         )}
       </main>
 
-      <footer className="bg-card border-t border-border py-8 mt-20">
-        <div className="container mx-auto px-4 text-center text-muted-foreground">
-          <p>&copy; 2024 GenArtHub. All rights reserved.</p>
-        </div>
+      <footer className="py-12 border-t border-white/5 text-center text-muted-foreground">
+        <p>© 2024 AnimeEchoes. Experience the aesthetic.</p>
       </footer>
     </div>
   );

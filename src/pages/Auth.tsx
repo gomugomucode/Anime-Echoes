@@ -1,80 +1,51 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { auth, db } from "@/lib/firebase";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Sparkles } from "lucide-react";
+import { ShieldCheck, Mail, Lock, ArrowLeft } from "lucide-react";
+import { Link } from "react-router-dom";
 
 const Auth = () => {
-  const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  useEffect(() => {
-    // Check if user is already logged in
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        navigate("/");
-      }
-    });
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session) {
-        navigate("/");
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, [navigate]);
-
-  const handleAuth = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-        if (error) throw error;
-        toast({
-          title: "Welcome back!",
-          description: "You've successfully logged in.",
-        });
-      } else {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            emailRedirectTo: `${window.location.origin}/`,
-          },
-        });
-        if (error) throw error;
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+
+      // Auto-setup: Ensure the admin role exists for this user
+      try {
+        const roleRef = doc(db, "user_roles", user.uid);
+        const roleSnap = await getDoc(roleRef);
         
-        // Insert default user role
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          await supabase.from("user_roles").insert({
-            user_id: user.id,
-            role: "user",
-          });
+        if (!roleSnap.exists()) {
+          // Promote this login to admin automatically if no role is found
+          await setDoc(roleRef, { role: "admin" });
         }
-        
-        toast({
-          title: "Account created!",
-          description: "Welcome to GenArtHub.",
-        });
+      } catch (roleError) {
+        console.error("Auto-role setup failed:", roleError);
       }
+      
+      toast({
+        title: "Access Granted",
+        description: "Welcome back, Master.",
+      });
+      navigate("/admin");
     } catch (error: any) {
       toast({
-        title: "Error",
+        title: "Access Denied",
         description: error.message,
         variant: "destructive",
       });
@@ -84,70 +55,69 @@ const Auth = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md p-8 bg-card border-border">
-        <div className="flex items-center justify-center gap-2 mb-8">
-          <Sparkles className="w-8 h-8 text-primary animate-glow" />
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-            GenArtHub
-          </h1>
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 relative overflow-hidden">
+      {/* Decorative elements */}
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/10 blur-[120px] rounded-full" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-secondary/10 blur-[120px] rounded-full" />
+
+      <Link to="/" className="absolute top-8 left-8 inline-flex items-center text-muted-foreground hover:text-primary transition-colors group">
+        <ArrowLeft className="w-4 h-4 mr-2 group-hover:-translate-x-1 transition-transform" />
+        <span className="text-xs font-bold uppercase tracking-widest">Exit Portal</span>
+      </Link>
+
+      <Card className="w-full max-w-md p-8 glass-card border-white/10 rounded-[2.5rem] relative z-10">
+        <div className="text-center mb-10">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 mb-6 animate-pulse">
+            <ShieldCheck className="w-8 h-8 text-primary" />
+          </div>
+          <h1 className="text-3xl font-black tracking-tight mb-2">Admin Portal</h1>
+          <p className="text-muted-foreground text-sm">Secure authorization required</p>
         </div>
 
-        <h2 className="text-2xl font-bold text-center mb-6 text-foreground">
-          {isLogin ? "Welcome Back" : "Create Account"}
-        </h2>
-
-        <form onSubmit={handleAuth} className="space-y-4">
-          <div>
-            <label htmlFor="email" className="block text-sm font-medium text-foreground mb-2">
-              Email
-            </label>
-            <Input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Enter your email"
-              required
-              className="bg-background border-border text-foreground"
-            />
+        <form onSubmit={handleLogin} className="space-y-6">
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-foreground/70 uppercase tracking-widest ml-1">Email Identifier</label>
+            <div className="relative">
+              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                type="email"
+                placeholder="admin@echoes.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                className="bg-white/5 border-white/10 h-14 pl-12 rounded-2xl focus:ring-primary text-foreground placeholder:text-muted-foreground/30"
+              />
+            </div>
           </div>
 
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-foreground mb-2">
-              Password
-            </label>
-            <Input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter your password"
-              required
-              minLength={6}
-              className="bg-background border-border text-foreground"
-            />
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-foreground/70 uppercase tracking-widest ml-1">Security Key</label>
+            <div className="relative">
+              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                type="password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                className="bg-white/5 border-white/10 h-14 pl-12 rounded-2xl focus:ring-primary text-foreground placeholder:text-muted-foreground/30"
+              />
+            </div>
           </div>
 
           <Button
             type="submit"
             disabled={loading}
-            className="w-full bg-primary hover:bg-primary/90 shadow-glow-purple"
+            className="w-full h-14 bg-primary text-primary-foreground rounded-2xl font-bold text-lg hover:shadow-[0_0_30px_rgba(147,51,234,0.3)] transition-all transform active:scale-95"
           >
-            {loading ? "Loading..." : isLogin ? "Login" : "Sign Up"}
+            {loading ? "Verifying..." : "Authorize Access"}
           </Button>
         </form>
 
-        <div className="mt-6 text-center">
-          <button
-            type="button"
-            onClick={() => setIsLogin(!isLogin)}
-            className="text-primary hover:text-primary/80 text-sm transition-colors"
-          >
-            {isLogin
-              ? "Don't have an account? Sign up"
-              : "Already have an account? Login"}
-          </button>
+        <div className="mt-8 text-center">
+          <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">
+            Restricted System • Authorized Personnel Only
+          </p>
         </div>
       </Card>
     </div>
