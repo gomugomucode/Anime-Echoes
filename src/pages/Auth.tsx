@@ -1,7 +1,5 @@
 import { useState } from "react";
-import { auth, db } from "@/lib/firebase";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { supabase } from "@/lib/supabase";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,17 +20,28 @@ const Auth = () => {
     setLoading(true);
 
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-      // Auto-setup: Ensure the admin role exists for this user
+      if (error) throw error;
+
+      // Auto-setup: Ensure the admin role exists for this user in Supabase
       try {
-        const roleRef = doc(db, "user_roles", user.uid);
-        const roleSnap = await getDoc(roleRef);
+        const { data: roleData } = await supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", data.user.id)
+          .maybeSingle();
         
-        if (!roleSnap.exists()) {
+        if (!roleData) {
           // Promote this login to admin automatically if no role is found
-          await setDoc(roleRef, { role: "admin" });
+          // Note: In production, you'd want a more secure way to assign roles
+          await supabase.from("user_roles").insert({
+            user_id: data.user.id,
+            role: "admin"
+          });
         }
       } catch (roleError) {
         console.error("Auto-role setup failed:", roleError);

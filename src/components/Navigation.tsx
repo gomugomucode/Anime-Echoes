@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { auth } from "@/lib/firebase";
-import { User, onAuthStateChanged, signOut } from "firebase/auth";
+import { supabase } from "@/lib/supabase";
+import { User } from "@supabase/supabase-js";
 import { useAdmin } from "@/hooks/useAdmin";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -30,18 +30,24 @@ const Navigation = () => {
     };
     window.addEventListener("scroll", handleScroll);
     
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      setUser(firebaseUser);
+    // Initial user check
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setUser(user);
+    });
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
     });
 
     return () => {
       window.removeEventListener("scroll", handleScroll);
-      unsubscribe();
+      subscription.unsubscribe();
     };
   }, []);
 
   const handleLogout = async () => {
-    await signOut(auth);
+    await supabase.auth.signOut();
     navigate("/");
   };
 

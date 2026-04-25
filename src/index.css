@@ -105,3 +105,11 @@
   50% { filter: drop-shadow(0 0 15px hsl(var(--primary))); }
 }
 
+  
+/* View Transitions API */  
+::view-transition-group(*),  
+::view-transition-old(*),  
+::view-transition-new(*) {  
+  animation-duration: 0.25s;  
+  animation-timing-function: cubic-bezier(0.19, 1, 0.22, 1);  
+} 

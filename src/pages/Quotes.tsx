@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { db } from "@/lib/firebase";
-import { collection, getDocs, query, orderBy } from "firebase/firestore";
+import { supabase } from "@/lib/supabase";
 import Navigation from "@/components/Navigation";
 import QuoteCard from "@/components/QuoteCard";
 import { Search, Quote as QuoteIcon, Sparkles } from "lucide-react";
@@ -25,23 +24,32 @@ const Quotes = () => {
 
   useEffect(() => {
     const filtered = quotes.filter(q =>
-      q.character_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      q.quote_text.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      q.anime_name.toLowerCase().includes(searchTerm.toLowerCase())
+      q.character_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      q.quote_text?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      q.anime_name?.toLowerCase().includes(searchTerm.toLowerCase())
     );
     setFilteredQuotes(filtered);
   }, [searchTerm, quotes]);
 
   const fetchQuotes = async () => {
     try {
-      const q = query(collection(db, "quotes"), orderBy("created_at", "desc"));
-      const querySnapshot = await getDocs(q);
-      const data = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as any[];
-      setQuotes(data);
-      setFilteredQuotes(data);
+      const { data, error } = await supabase
+        .from("quotes")
+        .select(`
+          *,
+          anime:anime_categories(name)
+        `)
+        .order("created_at", { ascending: false });
+      
+      if (error) throw error;
+      
+      const formattedData = data?.map(q => ({
+        ...q,
+        anime_name: q.anime?.name || q.anime_name || "Independent"
+      })) || [];
+      
+      setQuotes(formattedData);
+      setFilteredQuotes(formattedData);
     } catch (error) {
       console.error("Error fetching quotes:", error);
     } finally {

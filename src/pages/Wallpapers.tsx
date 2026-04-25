@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { db } from "@/lib/firebase";
-import { collection, getDocs, query, orderBy } from "firebase/firestore";
+import { supabase } from "@/lib/supabase";
 import Navigation from "@/components/Navigation";
 import WallpaperCard from "@/components/WallpaperCard";
 import { Input } from "@/components/ui/input";
@@ -39,13 +38,13 @@ const Wallpapers = () => {
 
   const fetchCategories = async () => {
     try {
-      const q = query(collection(db, "anime_categories"), orderBy("name"));
-      const querySnapshot = await getDocs(q);
-      const data = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        name: doc.data().name
-      })) as Category[];
-      setCategories(data);
+      const { data, error } = await supabase
+        .from("anime_categories")
+        .select("id, name")
+        .order("name");
+      
+      if (error) throw error;
+      setCategories(data || []);
     } catch (error) {
       console.error("Error fetching categories:", error);
     }
@@ -53,14 +52,23 @@ const Wallpapers = () => {
 
   const fetchWallpapers = async () => {
     try {
-      const q = query(collection(db, "wallpapers"), orderBy("created_at", "desc"));
-      const querySnapshot = await getDocs(q);
-      const data = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as any[];
-      setWallpapers(data);
-      setFilteredWallpapers(data);
+      const { data, error } = await supabase
+        .from("wallpapers")
+        .select(`
+          *,
+          anime:anime_categories(name)
+        `)
+        .order("created_at", { ascending: false });
+      
+      if (error) throw error;
+      
+      const formattedData = data?.map(w => ({
+        ...w,
+        anime_name: w.anime?.name || "Unknown"
+      })) || [];
+      
+      setWallpapers(formattedData);
+      setFilteredWallpapers(formattedData);
     } catch (error) {
       console.error("Error fetching wallpapers:", error);
     } finally {

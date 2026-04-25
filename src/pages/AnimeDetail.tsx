@@ -1,7 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { db } from "@/lib/firebase";
-import { collection, getDocs, query, orderBy, where, doc, getDoc } from "firebase/firestore";
+import { supabase } from "@/lib/supabase";
 import Navigation from "@/components/Navigation";
 import WallpaperCard from "@/components/WallpaperCard";
 import { Button } from "@/components/ui/button";
@@ -15,26 +14,29 @@ const AnimeDetail = () => {
   const { data: anime, isLoading: isAnimeLoading } = useQuery({
     queryKey: ["anime", id],
     queryFn: async () => {
-      const docRef = doc(db, "anime_categories", id as string);
-      const docSnap = await getDoc(docRef);
-      if (!docSnap.exists()) return null;
-      return { id: docSnap.id, ...docSnap.data() } as any;
+      const { data, error } = await supabase
+        .from("anime_categories")
+        .select("*")
+        .eq("id", id)
+        .maybeSingle();
+      
+      if (error) throw error;
+      return data;
     },
+    enabled: !!id,
   });
 
   const { data: wallpapers, isLoading: isWallpapersLoading } = useQuery({
     queryKey: ["wallpapers", id],
     queryFn: async () => {
-      const q = query(
-        collection(db, "wallpapers"), 
-        where("anime_id", "==", id),
-        orderBy("created_at", "desc")
-      );
-      const querySnapshot = await getDocs(q);
-      return querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      const { data, error } = await supabase
+        .from("wallpapers")
+        .select("*")
+        .eq("anime_id", id)
+        .order("created_at", { ascending: false });
+      
+      if (error) throw error;
+      return data;
     },
     enabled: !!id,
   });

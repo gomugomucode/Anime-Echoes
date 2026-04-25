@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
-import { auth, db } from "@/lib/firebase";
-import { onAuthStateChanged, User } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { supabase } from "@/lib/supabase";
+import { User } from "@supabase/supabase-js";
 
 export const useAdmin = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -9,25 +8,41 @@ export const useAdmin = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
-      setUser(firebaseUser);
-      if (firebaseUser) {
-        await checkAdminRole(firebaseUser.uid);
+    // 1. Initial user check
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setUser(user);
+      if (user) {
+        checkAdminRole(user.id);
+      } else {
+        setLoading(false);
+      }
+    });
+
+    // 2. Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
+      if (currentUser) {
+        checkAdminRole(currentUser.id);
       } else {
         setIsAdmin(false);
         setLoading(false);
       }
     });
 
-    return () => unsubscribe();
+    return () => subscription.unsubscribe();
   }, []);
 
   const checkAdminRole = async (userId: string) => {
     try {
-      const docRef = doc(db, "user_roles", userId);
-      const docSnap = await getDoc(docRef);
+      const { data, error } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", userId)
+        .eq("role", "admin")
+        .maybeSingle();
 
-      if (docSnap.exists() && docSnap.data().role === "admin") {
+      if (data) {
         setIsAdmin(true);
       } else {
         setIsAdmin(false);
