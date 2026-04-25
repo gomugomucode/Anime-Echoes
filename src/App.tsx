@@ -9,6 +9,8 @@ import Quotes from "./pages/Quotes";
 import Admin from "./pages/Admin";
 import Auth from "./pages/Auth";
 import Wallpapers from "./pages/Wallpapers";
+import Manga from "./pages/Manga";
+import MangaDetail from "./pages/MangaDetail";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -18,12 +20,14 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/anime/:id" element={<AnimeDetail />} />
           <Route path="/quotes" element={<Quotes />} />
           <Route path="/wallpapers" element={<Wallpapers />} />
+          <Route path="/manga" element={<Manga />} />
+          <Route path="/manga/:id" element={<MangaDetail />} />
           <Route path="/auth" element={<Auth />} />
           <Route path="/admin" element={<Admin />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

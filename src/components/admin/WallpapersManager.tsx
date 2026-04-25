@@ -40,7 +40,7 @@ export const WallpapersManager = () => {
 
   // API Search State
   const [apiSearchQuery, setApiSearchQuery] = useState("");
-  const [apiResults, setApiResults] = useState<WallhavenResult[]>([]);
+  const [apiResults, setApiResults] = useState<any[]>([]);
   const [isApiSearching, setIsApiSearching] = useState(false);
 
   const { toast } = useToast();
@@ -87,27 +87,34 @@ export const WallpapersManager = () => {
     }
   };
 
-  const handleSearchWallhaven = async () => {
-    if (!apiSearchQuery.trim()) return;
+  const handleSearchWaifu = async () => {
+    const tag = apiSearchQuery.trim().toLowerCase();
+    if (!tag) return;
     setIsApiSearching(true);
     try {
-      const response = await fetch(`https://wallhaven.cc/api/v1/search?q=${encodeURIComponent(apiSearchQuery)}&categories=010&purity=100`);
+      const response = await fetch(`https://api.waifu.im/images?IncludedTags=${encodeURIComponent(tag)}&IsNsfw=False&PageSize=21`);
       const data = await response.json();
-      setApiResults(data.data || []);
+      
+      if (data.detail) {
+        toast({ title: "Invalid Tag", description: "That tag doesn't exist in Waifu.im. Try 'maid', 'uniform', or 'waifu'.", variant: "destructive" });
+        setApiResults([]);
+      } else {
+        setApiResults(data.items || []);
+      }
     } catch (error) {
-      toast({ title: "Search Error", description: "Could not reach Wallhaven API", variant: "destructive" });
+      toast({ title: "Search Error", description: "Could not reach Waifu.im API", variant: "destructive" });
     } finally {
       setIsApiSearching(false);
     }
   };
 
-  const handleImportWallhaven = async (wall: WallhavenResult) => {
+  const handleImportWaifu = async (img: any) => {
     if (!selectedCategory) {
       toast({ title: "Series Required", description: "Please select a series to link this wallpaper to.", variant: "destructive" });
       return;
     }
     setLoading(true);
-    let imageUrl = wall.path;
+    let imageUrl = img.url;
 
     try {
       // 1. Attempt to fetch and upload to Supabase Storage
@@ -115,7 +122,7 @@ export const WallpapersManager = () => {
         const imgRes = await fetch(imageUrl);
         const blob = await imgRes.blob();
         
-        const fileName = `${Date.now()}_wallhaven_${wall.id}.jpg`;
+        const fileName = `${Date.now()}_waifu_${img.id}.jpg`;
         const { error: uploadError } = await supabase.storage
           .from("wallpapers")
           .upload(fileName, blob);
@@ -137,12 +144,12 @@ export const WallpapersManager = () => {
         .insert({
           anime_id: selectedCategory,
           image_url: imageUrl,
-          title: title || `Wallhaven ${wall.id}`,
+          title: title || `Art ${img.id}`,
         });
 
       if (error) throw error;
 
-      toast({ title: "Imported!", description: "Wallpaper added to your collection." });
+      toast({ title: "Imported!", description: "Masterpiece added to your collection." });
       setTitle("");
       fetchWallpapers();
     } catch (error: any) {
@@ -227,7 +234,7 @@ export const WallpapersManager = () => {
         <TabsList className="grid w-full max-w-md grid-cols-2 mb-8 glass-card border-white/5 p-1 h-14 rounded-2xl">
           <TabsTrigger value="search" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
             <Sparkles className="w-4 h-4 mr-2" />
-            Wallhaven Magic
+            Waifu.im Magic
           </TabsTrigger>
           <TabsTrigger value="manual" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
             <Upload className="w-4 h-4 mr-2" />
@@ -243,7 +250,7 @@ export const WallpapersManager = () => {
 
             <h3 className="text-2xl font-black mb-6 flex items-center gap-2">
               <Sparkles className="w-6 h-6 text-primary" />
-              Find High-Res Wallpapers
+              Sync Aesthetic Masterpieces
             </h3>
 
             <div className="flex flex-col md:flex-row gap-4 mb-10">
@@ -252,8 +259,8 @@ export const WallpapersManager = () => {
                 <Input
                   value={apiSearchQuery}
                   onChange={(e) => setApiSearchQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleSearchWallhaven()}
-                  placeholder="Search characters or series... (e.g., Gojo Satoru)"
+                  onKeyDown={(e) => e.key === "Enter" && handleSearchWaifu()}
+                  placeholder="Search tags... (e.g. Raiden Shogun, Maid, Uniform)"
                   className="bg-white/5 border-white/10 h-14 pl-12 rounded-2xl focus:ring-primary"
                 />
               </div>
@@ -270,7 +277,7 @@ export const WallpapersManager = () => {
               </Select>
 
               <Button 
-                onClick={handleSearchWallhaven} 
+                onClick={handleSearchWaifu} 
                 disabled={isApiSearching}
                 className="h-14 px-8 bg-primary text-primary-foreground rounded-2xl font-bold"
               >
@@ -279,26 +286,26 @@ export const WallpapersManager = () => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {apiResults.map((wall) => (
-                <Card key={wall.id} className="group relative overflow-hidden border-white/5 bg-white/5 rounded-2xl">
+              {apiResults.map((img) => (
+                <Card key={img.id} className="group relative overflow-hidden border-white/5 bg-white/5 rounded-2xl">
                   <div className="aspect-video overflow-hidden">
                     <img 
-                      src={wall.thumbs.large} 
-                      alt={wall.id} 
+                      src={img.url} 
+                      alt={img.id} 
                       className="w-full h-full object-cover transition-transform group-hover:scale-110"
                     />
                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center p-6 text-center">
-                      <p className="text-xs text-white/80 mb-4">{wall.dimension_x} x {wall.dimension_y}</p>
+                      <p className="text-xs text-white/80 mb-4">{img.width} x {img.height}</p>
                       <div className="flex gap-2">
                         <Button 
-                          onClick={() => handleImportWallhaven(wall)}
+                          onClick={() => handleImportWaifu(img)}
                           disabled={loading || !selectedCategory}
                           className="bg-primary text-white rounded-xl gap-2 font-bold"
                         >
                           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                           Import
                         </Button>
-                        <a href={wall.path} target="_blank" rel="noreferrer">
+                        <a href={img.url} target="_blank" rel="noreferrer">
                           <Button variant="outline" className="rounded-xl border-white/20 hover:bg-white/10">
                             <ExternalLink className="w-4 h-4" />
                           </Button>

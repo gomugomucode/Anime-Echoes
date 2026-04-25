@@ -13,7 +13,8 @@ import {
   LogOut, 
   Menu, 
   X,
-  ShieldCheck
+  ShieldCheck,
+  BookOpen
 } from "lucide-react";
 
 const Navigation = () => {
@@ -54,6 +55,7 @@ const Navigation = () => {
   const navLinks = [
     { name: "Wallpapers", path: "/wallpapers", icon: <ImageIcon className="w-4 h-4" /> },
     { name: "Quotes", path: "/quotes", icon: <Quote className="w-4 h-4" /> },
+    { name: "Manga", path: "/manga", icon: <BookOpen className="w-4 h-4" /> },
   ];
 
   return (
