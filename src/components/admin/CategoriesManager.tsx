@@ -79,7 +79,8 @@ export const CategoriesManager = () => {
     try {
       // 1. Attempt to fetch and upload to Supabase Storage
       try {
-        const imgRes = await fetch(imageUrl);
+        const proxyUrl = `/api-mal-images${new URL(imageUrl).pathname}`;
+        const imgRes = await fetch(proxyUrl);
         const blob = await imgRes.blob();
         
         const fileName = `${Date.now()}_jikan_${anime.mal_id}.jpg`;

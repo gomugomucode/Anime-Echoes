@@ -42,6 +42,7 @@ export const WallpapersManager = () => {
   const [apiSearchQuery, setApiSearchQuery] = useState("");
   const [apiResults, setApiResults] = useState<any[]>([]);
   const [isApiSearching, setIsApiSearching] = useState(false);
+  const [searchType, setSearchType] = useState<"waifu" | "jikan" | "anilist" | "safebooru">("safebooru");
 
   const { toast } = useToast();
 
@@ -87,6 +88,18 @@ export const WallpapersManager = () => {
     }
   };
 
+  const handleSearch = async () => {
+    if (searchType === "waifu") {
+      await handleSearchWaifu();
+    } else if (searchType === "jikan") {
+      await handleSearchJikanChars();
+    } else if (searchType === "anilist") {
+      await handleSearchAniList();
+    } else {
+      await handleSearchSafebooru();
+    }
+  };
+
   const handleSearchWaifu = async () => {
     const tag = apiSearchQuery.trim().toLowerCase();
     if (!tag) return;
@@ -96,33 +109,132 @@ export const WallpapersManager = () => {
       const data = await response.json();
       
       if (data.detail) {
-        toast({ title: "Invalid Tag", description: "That tag doesn't exist in Waifu.im. Try 'maid', 'uniform', or 'waifu'.", variant: "destructive" });
+        toast({ title: "Invalid Tag", description: "Try 'maid' or 'waifu'.", variant: "destructive" });
         setApiResults([]);
       } else {
-        setApiResults(data.items || []);
+        setApiResults(data.items.map((img: any) => ({
+          id: img.id,
+          url: img.url,
+          width: img.width,
+          height: img.height,
+          source: "Waifu.im"
+        })));
       }
     } catch (error) {
-      toast({ title: "Search Error", description: "Could not reach Waifu.im API", variant: "destructive" });
+      toast({ title: "Search Error", description: "Waifu.im failed", variant: "destructive" });
     } finally {
       setIsApiSearching(false);
     }
   };
 
-  const handleImportWaifu = async (img: any) => {
+  const handleSearchJikanChars = async () => {
+    const query = apiSearchQuery.trim();
+    if (!query) return;
+    setIsApiSearching(true);
+    try {
+      const response = await fetch(`https://api.jikan.moe/v4/characters?q=${encodeURIComponent(query)}&limit=21`);
+      const data = await response.json();
+      setApiResults(data.data?.map((char: any) => ({
+        id: char.mal_id,
+        url: char.images.jpg.image_url,
+        width: 225,
+        height: 350,
+        name: char.name,
+        source: "Official (Jikan)"
+      })) || []);
+    } catch (error) {
+      toast({ title: "Search Error", description: "Jikan failed", variant: "destructive" });
+    } finally {
+      setIsApiSearching(false);
+    }
+  };
+
+  const handleSearchAniList = async () => {
+    const query = apiSearchQuery.trim();
+    if (!query) return;
+    setIsApiSearching(true);
+    const graphQuery = `
+      query ($search: String) {
+        Page (perPage: 21) {
+          media (search: $search, type: ANIME) {
+            id
+            title { english romaji }
+            bannerImage
+            coverImage { large }
+          }
+        }
+      }
+    `;
+
+    try {
+      const response = await fetch('https://graphql.anilist.co', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ query: graphQuery, variables: { search: query } })
+      });
+      const data = await response.json();
+      setApiResults(data.data.Page.media.filter((m: any) => m.bannerImage).map((m: any) => ({
+        id: m.id,
+        url: m.bannerImage,
+        name: m.title.english || m.title.romaji,
+        source: "AniList Banners"
+      })));
+    } catch (error) {
+      toast({ title: "Search Error", description: "AniList failed", variant: "destructive" });
+    } finally {
+      setIsApiSearching(false);
+    }
+  };
+
+  const handleSearchSafebooru = async () => {
+    const query = apiSearchQuery.trim().toLowerCase().replace(/\s+/g, '_');
+    if (!query) return;
+    setIsApiSearching(true);
+    try {
+      // Use Vite proxy for Safebooru to avoid CORS
+      const apiPath = `/api-safebooru/index.php?page=dapi&s=post&q=index&json=1&limit=21&tags=${encodeURIComponent(query)}`;
+      const response = await fetch(apiPath);
+      const posts = await response.json();      
+      if (!Array.isArray(posts)) {
+        setApiResults([]);
+        return;
+      }
+
+      setApiResults(posts.map((img: any) => ({
+        id: img.id,
+        url: `https://safebooru.org/images/${img.directory}/${img.image}`,
+        width: img.width,
+        height: img.height,
+        source: "Safebooru (Gallery)"
+      })));
+    } catch (error) {
+      console.error("Safebooru error:", error);
+      toast({ title: "Search Error", description: "Safebooru failed. Try another search.", variant: "destructive" });
+    } finally {
+      setIsApiSearching(false);
+    }
+  };
+
+  const handleImport = async (img: any) => {
     if (!selectedCategory) {
-      toast({ title: "Series Required", description: "Please select a series to link this wallpaper to.", variant: "destructive" });
+      toast({ title: "Series Required", description: "Select a series first.", variant: "destructive" });
       return;
     }
     setLoading(true);
     let imageUrl = img.url;
 
     try {
-      // 1. Attempt to fetch and upload to Supabase Storage
+      // 1. Download image using proxy to bypass CORS
       try {
-        const imgRes = await fetch(imageUrl);
-        const blob = await imgRes.blob();
+        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(img.url)}`;
+        const response = await fetch(proxyUrl);
+        const data = await response.json();
         
-        const fileName = `${Date.now()}_waifu_${img.id}.jpg`;
+        // Convert base64/string contents to a blob
+        const res = await fetch(data.contents);
+        const blob = await res.blob();
+        
+        const fileName = `${Date.now()}_import_${img.id}.jpg`;
         const { error: uploadError } = await supabase.storage
           .from("wallpapers")
           .upload(fileName, blob);
@@ -134,8 +246,8 @@ export const WallpapersManager = () => {
           .getPublicUrl(fileName);
           
         imageUrl = publicUrl;
-      } catch (corsError) {
-        console.warn("CORS or Storage error, using external link:", corsError);
+      } catch (e) { 
+        console.warn("Using direct link due to CORS/Storage error:", e);
       }
 
       // 2. Add to Supabase Table
@@ -144,12 +256,11 @@ export const WallpapersManager = () => {
         .insert({
           anime_id: selectedCategory,
           image_url: imageUrl,
-          title: title || `Art ${img.id}`,
+          title: title || img.name || `Art ${img.id}`,
         });
 
       if (error) throw error;
-
-      toast({ title: "Imported!", description: "Masterpiece added to your collection." });
+      toast({ title: "Imported!", description: "Masterpiece added." });
       setTitle("");
       fetchWallpapers();
     } catch (error: any) {
@@ -234,7 +345,7 @@ export const WallpapersManager = () => {
         <TabsList className="grid w-full max-w-md grid-cols-2 mb-8 glass-card border-white/5 p-1 h-14 rounded-2xl">
           <TabsTrigger value="search" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
             <Sparkles className="w-4 h-4 mr-2" />
-            Waifu.im Magic
+            Magic Sync
           </TabsTrigger>
           <TabsTrigger value="manual" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
             <Upload className="w-4 h-4 mr-2" />
@@ -248,10 +359,47 @@ export const WallpapersManager = () => {
               <Search className="w-24 h-24" />
             </div>
 
-            <h3 className="text-2xl font-black mb-6 flex items-center gap-2">
-              <Sparkles className="w-6 h-6 text-primary" />
-              Sync Aesthetic Masterpieces
-            </h3>
+            <div className="flex flex-col md:flex-row items-center justify-between mb-8 gap-4">
+              <h3 className="text-2xl font-black flex items-center gap-2">
+                <Sparkles className="w-6 h-6 text-primary" />
+                Sync Aesthetic Masterpieces
+              </h3>
+              
+              <div className="flex bg-white/5 p-1 rounded-xl border border-white/10">
+                <button
+                  onClick={() => setSearchType("safebooru")}
+                  className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${
+                    searchType === "safebooru" ? "bg-primary text-white shadow-lg" : "text-muted-foreground hover:text-white"
+                  }`}
+                >
+                  Gallery
+                </button>
+                <button
+                  onClick={() => setSearchType("anilist")}
+                  className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${
+                    searchType === "anilist" ? "bg-primary text-white shadow-lg" : "text-muted-foreground hover:text-white"
+                  }`}
+                >
+                  High-Res
+                </button>
+                <button
+                  onClick={() => setSearchType("jikan")}
+                  className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${
+                    searchType === "jikan" ? "bg-primary text-white shadow-lg" : "text-muted-foreground hover:text-white"
+                  }`}
+                >
+                  Official
+                </button>
+                <button
+                  onClick={() => setSearchType("waifu")}
+                  className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${
+                    searchType === "waifu" ? "bg-primary text-white shadow-lg" : "text-muted-foreground hover:text-white"
+                  }`}
+                >
+                  Aesthetic
+                </button>
+              </div>
+            </div>
 
             <div className="flex flex-col md:flex-row gap-4 mb-10">
               <div className="relative flex-1">
@@ -259,8 +407,8 @@ export const WallpapersManager = () => {
                 <Input
                   value={apiSearchQuery}
                   onChange={(e) => setApiSearchQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleSearchWaifu()}
-                  placeholder="Search tags... (e.g. Raiden Shogun, Maid, Uniform)"
+                  onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                  placeholder={searchType === "jikan" ? "Search characters... (e.g. Naruto, Eren, Luffy)" : "Search tags... (e.g. maid, uniform, waifu)"}
                   className="bg-white/5 border-white/10 h-14 pl-12 rounded-2xl focus:ring-primary"
                 />
               </div>
@@ -277,7 +425,7 @@ export const WallpapersManager = () => {
               </Select>
 
               <Button 
-                onClick={handleSearchWaifu} 
+                onClick={handleSearch} 
                 disabled={isApiSearching}
                 className="h-14 px-8 bg-primary text-primary-foreground rounded-2xl font-bold"
               >
@@ -295,10 +443,11 @@ export const WallpapersManager = () => {
                       className="w-full h-full object-cover transition-transform group-hover:scale-110"
                     />
                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center p-6 text-center">
-                      <p className="text-xs text-white/80 mb-4">{img.width} x {img.height}</p>
+                      {img.name && <p className="text-sm font-bold text-white mb-2">{img.name}</p>}
+                      <p className="text-[10px] text-white/60 mb-4">{img.width} x {img.height} • {img.source}</p>
                       <div className="flex gap-2">
                         <Button 
-                          onClick={() => handleImportWaifu(img)}
+                          onClick={() => handleImport(img)}
                           disabled={loading || !selectedCategory}
                           className="bg-primary text-white rounded-xl gap-2 font-bold"
                         >
